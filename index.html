@@ -1,0 +1,889 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>国际象棋：从零开始的渐进练习</title>
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    body {
+      margin: 0; padding: 0; background: #eadeca;
+      font-family: 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; min-height: 100dvh;
+    }
+    #status { font-size: 1.2rem; font-weight: bold; margin-bottom: 6px; color: #222; min-height: 1.8rem; text-align: center; }
+    
+    .top-bar {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+      gap: 8px; margin-bottom: 10px; width: 100%; max-width: 400px;
+    }
+    .top-bar select, .top-bar button {
+      padding: 6px 12px; font-size: 0.9rem; border-radius: 6px;
+      border: 1.5px solid #3e2723; background: #fdfaf2; cursor: pointer;
+      font-weight: 600; color: #3e2723;
+    }
+    .top-bar button { background: #bcaaa4; border-color: #4e342e; }
+    .top-bar button:hover:not(:disabled) { background: #a1887f; }
+    .top-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #undoBtn { background: #d7ccc8; border-color: #5d4037; }
+    #undoBtn:hover:not(:disabled) { background: #bcaaa4; }
+
+    .board-wrapper {
+      width: 95vw; max-width: 400px;
+      padding: 12px;
+      background: #4e342e; border: 4px solid #2d1a14; border-radius: 6px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+      position: relative;
+    }
+
+    /* 容器：承载网格以及悬浮的粒子和交互层 */
+    #board-container {
+      position: relative;
+      width: 100%; height: calc(95vw - 24px); max-height: calc(400px - 24px);
+    }
+
+    #board-bg {
+      display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+      width: 100%; height: 100%;
+      background: #bcaaa4;
+    }
+    
+    .cell { position: relative; }
+    .cell.light { background-color: #ece0d1; }
+    .cell.dark { background-color: #9c6644; }
+    
+    #board-pieces {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 2;
+    }
+
+    #board-triggers {
+      display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 3;
+    }
+
+    .click-trigger {
+      position: relative; width: 100%; height: 100%;
+      display: flex; justify-content: center; align-items: center;
+      cursor: pointer; pointer-events: auto;
+    }
+    
+    .piece {
+      font-size: 2.2rem;
+      display: flex; justify-content: center; align-items: center;
+      transition: transform 0.2s ease;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+    .piece.white { color: #ffffff; filter: drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.8)); }
+    .piece.black { color: #1a1a1a; filter: drop-shadow(0px 1px 1px rgba(255, 255, 255, 0.4)); }
+    
+    .piece.rotate180 { transform: rotate(180deg); }
+    
+    .click-trigger.selected { background-color: rgba(255, 215, 0, 0.45); }
+    .click-trigger.hint::before {
+      content: ""; width: 14px; height: 14px; background: rgba(46, 125, 50, 0.7);
+      border-radius: 50%; position: absolute; z-index: 4; pointer-events: none;
+    }
+    .click-trigger.hint.has-target::before {
+      width: 80%; height: 80%; background: transparent; border: 4px solid rgba(198, 40, 40, 0.7);
+    }
+
+    .click-trigger.last-move-from { background-color: rgba(255, 235, 59, 0.25); }
+    .click-trigger.last-move-to { background-color: rgba(255, 235, 59, 0.4); }
+
+    #game-over-msg {
+      font-size: 1.5rem; font-weight: bold; color: #b22222;
+      margin-top: 8px; min-height: 2.2rem; text-align: center;
+    }
+
+    .footer-hint {
+      font-size: 0.85rem; color: #5d4037; margin-top: 10px;
+      text-align: center; max-width: 400px; line-height: 1.5;
+    }
+
+    /* 升变选择器高质感弹窗 */
+    .promo-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6); z-index: 100;
+      display: none; align-items: center; justify-content: center;
+      border-radius: 4px;
+    }
+    .promo-modal {
+      background: #fdfaf2; padding: 16px; border-radius: 8px;
+      border: 3px solid #4e342e; text-align: center;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    }
+    .promo-title { font-weight: bold; margin-bottom: 12px; color: #4e342e; font-size: 1.1rem; }
+    .promo-options { display: flex; gap: 12px; justify-content: center; }
+    .promo-btn {
+      width: 54px; height: 54px; font-size: 2.2rem; background: #ece0d1;
+      border: 2px solid #9c6644; border-radius: 6px; cursor: pointer;
+      display: flex; justify-content: center; align-items: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.15); transition: background 0.1s;
+    }
+    .promo-btn:hover { background: #dbcca0; }
+    .promo-btn.black-p { color: #1a1a1a; filter: drop-shadow(0px 1px 1px rgba(255, 255, 255, 0.4)); }
+    .promo-btn.white-p { color: #ffffff; filter: drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.8)); }
+
+    @media (max-width: 480px) {
+      .piece, .promo-btn { font-size: 1.8rem; }
+      .promo-btn { width: 46px; height: 46px; }
+      .top-bar select, .top-bar button { font-size: 0.75rem; padding: 4px 8px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="status">♟ 轮到你了（白方）</div>
+  
+  <div class="top-bar">
+    <select id="difficultySelect">
+      <option value="easy" selected>💚一级:AI啥也不懂</option>
+      <option value="medium">💛二级:AI学会吃子</option>
+      <option value="hard"> 🧡三级:AI谨慎落子</option>
+      <option value="expert">❤️四级:AI学会避险</option>
+      <option value="defense">🛡️五级:AI注重防守</option>
+    </select>
+    <button id="restartBtn">🔄 重开</button>
+    <button id="undoBtn" disabled>↩️ 悔棋 (<span id="undoCount">3</span>)</button>
+  </div>
+
+  <div class="board-wrapper">
+    <div id="board-container">
+      <div id="board-bg"></div>
+      <div id="board-pieces"></div>
+      <div id="board-triggers"></div>
+      <div class="promo-overlay" id="promoOverlay">
+        <div class="promo-modal">
+          <div class="promo-title">👑 达成底线！请选择兵的升变：</div>
+          <div class="promo-options" id="promoOptions"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="game-over-msg"></div>
+  <div class="footer-hint">
+    💡 点击我方棋子选中，再点击绿色标志走棋。兵到对方底线可触发图形升变！<br>
+    🔁 手机垂直倒转180°，可自由更换执方视角。<br>
+    💥 大力快速摇晃手机，即可物理掀桌重开！
+  </div>
+
+<script>
+// ==================== 常量与状态 ====================
+const WHITE = 'white', BLACK = 'black';
+const TYPE = { PAWN: 'p', ROOK: 'r', KNIGHT: 'n', BISHOP: 'b', QUEEN: 'q', KING: 'k' };
+
+// 🛠️ 已经修复：黑车符号完美修正为标准的 ♜
+const PIECE_SYMBOLS = {
+  white: { p: '♙', r: '♖', n: '♘', b: '♗', q: '♕', k: '♔' },
+  black: { p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚' }
+};
+
+const PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 1000 };
+
+let board = Array(8).fill(null).map(() => Array(8).fill(null));
+let selectedSquare = null;
+let legalMovesForSelected = [];
+let isPlayerTurn = true;
+let playerSide = WHITE; 
+let gameOver = false;
+let lastMove = null; 
+let history = []; 
+let undoRemain = 3;
+let aiTimeoutId = null; 
+let isExploding = false;       
+
+const statusEl = document.getElementById('status');
+const gameOverMsgEl = document.getElementById('game-over-msg');
+const bgEl = document.getElementById('board-bg');
+const piecesLayerEl = document.getElementById('board-pieces');
+const triggersLayerEl = document.getElementById('board-triggers');
+const difficultySelect = document.getElementById('difficultySelect');
+const restartBtn = document.getElementById('restartBtn');
+const undoBtn = document.getElementById('undoBtn');
+const undoCountSpan = document.getElementById('undoCount');
+const promoOverlay = document.getElementById('promoOverlay');
+const promoOptions = document.getElementById('promoOptions');
+
+// ==================== 初始化与底图渲染 ====================
+function initStaticBg() {
+  bgEl.innerHTML = '';
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const cell = document.createElement('div');
+      cell.className = `cell ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+      bgEl.appendChild(cell);
+    }
+  }
+}
+initStaticBg();
+
+function initGame() {
+  if (aiTimeoutId) clearTimeout(aiTimeoutId); 
+  promoOverlay.style.display = 'none';
+
+  const savedDifficulty = localStorage.getItem('intl_chess_difficulty');
+  if (savedDifficulty) difficultySelect.value = savedDifficulty;
+
+  board = Array(8).fill(null).map(() => Array(8).fill(null));
+  
+  const backRowBlack = [TYPE.ROOK, TYPE.KNIGHT, TYPE.BISHOP, TYPE.QUEEN, TYPE.KING, TYPE.BISHOP, TYPE.KNIGHT, TYPE.ROOK];
+  for(let c=0; c<8; c++) {
+    board[0][c] = { type: backRowBlack[c], side: BLACK };
+    board[1][c] = { type: TYPE.PAWN, side: BLACK };
+  }
+
+  const backRowWhite = [TYPE.ROOK, TYPE.KNIGHT, TYPE.BISHOP, TYPE.QUEEN, TYPE.KING, TYPE.BISHOP, TYPE.KNIGHT, TYPE.ROOK];
+  for(let c=0; c<8; c++) {
+    board[6][c] = { type: TYPE.PAWN, side: WHITE };
+    board[7][c] = { type: backRowWhite[c], side: WHITE };
+  }
+
+  selectedSquare = null;
+  legalMovesForSelected = [];
+  
+  const currentTurnSide = (history.length % 2 === 0) ? WHITE : BLACK;
+  isPlayerTurn = (playerSide === currentTurnSide);
+
+  gameOver = false;
+  lastMove = null;
+  history = [];
+  undoRemain = 3;
+  isExploding = false;       
+  gameOverMsgEl.innerText = '';
+  
+  // 完美复位：擦除残存漂移粒子，归还层级控制
+  piecesLayerEl.innerHTML = '';
+  
+  updateStatusText();
+  updateUndoButton();
+  renderBoard();
+
+  checkAndTriggerAi(400);
+}
+
+function updateStatusText() {
+  if (gameOver) return;
+  const sideName = playerSide === WHITE ? '白方' : '黑方';
+  const currentTurnSide = (history.length % 2 === 0) ? WHITE : BLACK;
+  
+  if (playerSide === currentTurnSide) {
+    statusEl.innerText = `♟ 轮到你了（${sideName}）`;
+  } else {
+    statusEl.innerText = '🤖 AI 思考中 ...';
+  }
+}
+
+// ==================== 渲染引擎 (底层图层剥离) ====================
+function renderBoard() {
+  if (isExploding) return; 
+
+  triggersLayerEl.innerHTML = '';
+  
+  // 如果当前不是粒子爆炸态，让棋子待在各自格子里静态渲染
+  const containerRect = bgEl.getBoundingClientRect();
+  const stepX = containerRect.width / 8;
+  const stepY = containerRect.height / 8;
+
+  // 清理非掀桌态的常规棋子
+  if(!isExploding) {
+    piecesLayerEl.innerHTML = '';
+  }
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const trigger = document.createElement('div');
+      trigger.className = 'click-trigger';
+
+      if (selectedSquare && selectedSquare.r === r && selectedSquare.c === c) {
+        trigger.classList.add('selected');
+      }
+      
+      if (legalMovesForSelected.some(m => m.toR === r && m.toC === c)) {
+        trigger.classList.add('hint');
+        if (board[r][c]) trigger.classList.add('has-target');
+      }
+      
+      if (lastMove) {
+        if (lastMove.fromR === r && lastMove.fromC === c) trigger.classList.add('last-move-from');
+        if (lastMove.toR === r && lastMove.toC === c) trigger.classList.add('last-move-to');
+      }
+
+      const piece = board[r][c];
+      if (piece && !isExploding) {
+        const pieceEl = document.createElement('div');
+        pieceEl.className = `piece ${piece.side}`;
+        if (playerSide === BLACK) pieceEl.classList.add('rotate180');
+        pieceEl.innerHTML = PIECE_SYMBOLS[piece.side][piece.type];
+        
+        // 挂载至绝对定位漂移层，以便于对齐
+        pieceEl.style.position = 'absolute';
+        pieceEl.style.left = `${c * 12.5}%`;
+        pieceEl.style.top = `${r * 12.5}%`;
+        pieceEl.style.width = '12.5%';
+        pieceEl.style.height = '12.5%';
+        piecesLayerEl.appendChild(pieceEl);
+      }
+
+      trigger.addEventListener('click', () => handleCellClick(r, c));
+      triggersLayerEl.appendChild(trigger);
+    }
+  }
+}
+
+// ==================== 交互与移动逻辑 ====================
+function handleCellClick(r, c) {
+  if (!isPlayerTurn || gameOver || isExploding || promoOverlay.style.display === 'flex') return;
+
+  const clicked = board[r][c];
+  if (clicked && clicked.side === playerSide) {
+    selectedSquare = { r, c };
+    legalMovesForSelected = getLegalMoves(r, c, playerSide);
+    renderBoard();
+    return;
+  }
+
+  const move = legalMovesForSelected.find(m => m.toR === r && m.toC === c);
+  if (move) {
+    // 检测是否触发升变
+    const moving = board[move.fromR][move.fromC];
+    if (moving.type === TYPE.PAWN && (move.toR === 0 || move.toR === 7)) {
+      if (moving.side === playerSide) {
+        // 打开单选卡片弹窗
+        showPromotionModal(move);
+        return;
+      } else {
+        moving.type = TYPE.QUEEN;
+      }
+    }
+    
+    const isGameOver = executeMove(move);
+    if (isGameOver) return;
+    postMoveAiTrigger();
+  } else {
+    selectedSquare = null;
+    legalMovesForSelected = [];
+    renderBoard();
+  }
+}
+
+function showPromotionModal(move) {
+  promoOptions.innerHTML = '';
+  const sideClass = playerSide === WHITE ? 'white-p' : 'black-p';
+  const options = [
+    { type: TYPE.QUEEN, icon: PIECE_SYMBOLS[playerSide][TYPE.QUEEN] },
+    { type: TYPE.ROOK, icon: PIECE_SYMBOLS[playerSide][TYPE.ROOK] },
+    { type: TYPE.BISHOP, icon: PIECE_SYMBOLS[playerSide][TYPE.BISHOP] },
+    { type: TYPE.KNIGHT, icon: PIECE_SYMBOLS[playerSide][TYPE.KNIGHT] }
+  ];
+
+  options.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.className = `promo-btn ${sideClass}`;
+    btn.innerHTML = opt.icon;
+    btn.addEventListener('click', () => {
+      board[move.fromR][move.fromC].type = opt.type;
+      promoOverlay.style.display = 'none';
+      const isGameOver = executeMove(move);
+      if (!isGameOver) postMoveAiTrigger();
+    });
+    promoOptions.appendChild(btn);
+  });
+  promoOverlay.style.display = 'flex';
+}
+
+function postMoveAiTrigger() {
+  isPlayerTurn = false;
+  updateStatusText();
+  updateUndoButton();
+  checkAndTriggerAi(500); 
+}
+
+function executeMove(move) {
+  const target = board[move.toR][move.toC];
+  let moving = board[move.fromR][move.fromC];
+  
+  // AI 升变默认处理
+  if (moving.type === TYPE.PAWN && (move.toR === 0 || move.toR === 7)) {
+    moving.type = TYPE.QUEEN;
+  }
+
+  history.push({
+    fromR: move.fromR, fromC: move.fromC,
+    toR: move.toR, toC: move.toC,
+    captured: target,
+    prevType: moving.type
+  });
+
+  board[move.toR][move.toC] = moving;
+  board[move.fromR][move.fromC] = null;
+  lastMove = { fromR: move.fromR, fromC: move.fromC, toR: move.toR, toC: move.toC };
+  
+  selectedSquare = null;
+  legalMovesForSelected = [];
+  renderBoard();
+  updateUndoButton();
+
+  if (target && target.type === TYPE.KING) {
+    gameOver = true;
+    isPlayerTurn = false;
+    if (target.side === playerSide) {
+      statusEl.innerText = '😢 你输了，国王被将死了！';
+      gameOverMsgEl.innerText = '💔 游戏结束';
+    } else {
+      statusEl.innerText = '🎉 恭喜你赢了！太强了！';
+      gameOverMsgEl.innerText = '🏆 成功战胜 AI！';
+    }
+    return true;
+  }
+  return false;
+}
+
+function checkAndTriggerAi(delayMs) {
+  if (gameOver || isExploding) return;
+  if (aiTimeoutId) clearTimeout(aiTimeoutId);
+
+  const currentTurnSide = (history.length % 2 === 0) ? WHITE : BLACK;
+  
+  if (playerSide !== currentTurnSide) {
+    isPlayerTurn = false;
+    aiTimeoutId = setTimeout(() => {
+      if (!gameOver && !isExploding && playerSide !== ((history.length % 2 === 0) ? WHITE : BLACK)) {
+        updateStatusText();
+        aiTurn();
+      }
+    }, delayMs);
+  } else {
+    isPlayerTurn = true;
+    updateStatusText();
+  }
+}
+
+function undo() {
+  if (undoRemain <= 0 || history.length < 2 || isExploding) return;
+  if (aiTimeoutId) clearTimeout(aiTimeoutId); 
+  promoOverlay.style.display = 'none';
+
+  const aiStep = history.pop();
+  const aiPiece = board[aiStep.toR][aiStep.toC];
+  board[aiStep.fromR][aiStep.fromC] = aiPiece;
+  board[aiStep.toR][aiStep.toC] = aiStep.captured;
+
+  const playerStep = history.pop();
+  const playerPiece = board[playerStep.toR][playerStep.toC];
+  playerPiece.type = playerStep.prevType; 
+  board[playerStep.fromR][playerStep.fromC] = playerPiece;
+  board[playerStep.toR][playerStep.toC] = playerStep.captured;
+
+  lastMove = null;
+  gameOver = false;
+  isPlayerTurn = true;
+  selectedSquare = null;
+  legalMovesForSelected = [];
+  gameOverMsgEl.innerText = '';
+  updateStatusText();
+  undoRemain--;
+  updateUndoButton();
+  renderBoard();
+}
+
+function updateUndoButton() {
+  undoCountSpan.innerText = undoRemain;
+  undoBtn.disabled = (undoRemain <= 0 || history.length < 2 || isExploding);
+}
+
+// ==================== 规则扫描引擎 ====================
+function getLegalMoves(r, c, side) {
+  const piece = board[r][c];
+  if (!piece) return [];
+  const moves = [];
+
+  const crossDirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  const diagonalDirs = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+  const allDirs = [...crossDirs, ...diagonalDirs];
+
+  switch (piece.type) {
+    case TYPE.ROOK:
+      for (const [dr, dc] of crossDirs) {
+        let tr = r + dr, tc = c + dc;
+        while (tr >= 0 && tr < 8 && tc >= 0 && tc < 8) {
+          if (!board[tr][tc]) moves.push({ fromR: r, fromC: c, toR: tr, toC: tc });
+          else {
+            if (board[tr][tc].side !== side) moves.push({ fromR: r, fromC: c, toR: tr, toC: tc });
+            break;
+          }
+          tr += dr; tc += dc;
+        }
+      }
+      break;
+
+    case TYPE.BISHOP:
+      for (const [dr, dc] of diagonalDirs) {
+        let tr = r + dr, tc = c + dc;
+        while (tr >= 0 && tr < 8 && tc >= 0 && tc < 8) {
+          if (!board[tr][tc]) moves.push({ fromR: r, fromC: c, toR: tr, toC: tc });
+          else {
+            if (board[tr][tc].side !== side) moves.push({ fromR: r, fromC: c, toR: tr, toC: tc });
+            break;
+          }
+          tr += dr; tc += dc;
+        }
+      }
+      break;
+
+    case TYPE.QUEEN:
+      for (const [dr, dc] of allDirs) {
+        let tr = r + dr, tc = c + dc;
+        while (tr >= 0 && tr < 8 && tc >= 0 && tc < 8) {
+          if (!board[tr][tc]) moves.push({ fromR: r, fromC: c, toR: tr, toC: tc });
+          else {
+            if (board[tr][tc].side !== side) moves.push({ fromR: r, fromC: c, toR: tr, toC: tc });
+            break;
+          }
+          tr += dr; tc += dc;
+        }
+      }
+      break;
+
+    case TYPE.KING:
+      for (const [dr, dc] of allDirs) {
+        const tr = r + dr, tc = c + dc;
+        if (tr >= 0 && tr < 8 && tc >= 0 && tc < 8) {
+          if (!board[tr][tc] || board[tr][tc].side !== side) {
+            moves.push({ fromR: r, fromC: c, toR: tr, toC: tc });
+          }
+        }
+      }
+      break;
+
+    case TYPE.KNIGHT:
+      const knightOffsets = [[-2,-1], [-2,1], [2,-1], [2,1], [-1,-2], [1,-2], [-1,2], [1,2]];
+      for (const [dr, dc] of knightOffsets) {
+        const tr = r + dr, tc = c + dc;
+        if (tr >= 0 && tr < 8 && tc >= 0 && tc < 8) {
+          if (!board[tr][tc] || board[tr][tc].side !== side) {
+            moves.push({ fromR: r, fromC: c, toR: tr, toC: tc });
+          }
+        }
+      }
+      break;
+
+    case TYPE.PAWN:
+      const dir = (side === WHITE) ? -1 : 1;
+      const startRow = (side === WHITE) ? 6 : 1;
+
+      let tr = r + dir, tc = c;
+      if (tr >= 0 && tr < 8 && !board[tr][tc]) {
+        moves.push({ fromR: r, fromC: c, toR: tr, toC: tc });
+        if (r === startRow) {
+          let tr2 = r + (dir * 2);
+          if (!board[tr2][tc]) moves.push({ fromR: r, fromC: c, toR: tr2, toC: tc });
+        }
+      }
+      for (const dc of [-1, 1]) {
+        let targetR = r + dir, targetC = c + dc;
+        if (targetR >= 0 && targetR < 8 && targetC >= 0 && targetC < 8) {
+          const targetPiece = board[targetR][targetC];
+          if (targetPiece && targetPiece.side !== side) {
+            moves.push({ fromR: r, fromC: c, toR: targetR, toC: targetC });
+          }
+        }
+      }
+      break;
+  }
+  return moves;
+}
+
+function getAttackers(r, c, attackerSide) {
+  const attackers = [];
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const p = board[row][col];
+      if (p && p.side === attackerSide) {
+        const moves = getLegalMoves(row, col, attackerSide);
+        if (moves.some(m => m.toR === r && m.toC === c)) attackers.push(p);
+      }
+    }
+  }
+  return attackers;
+}
+
+// ==================== AI 决策中心 ====================
+function aiTurn() {
+  if (gameOver || isExploding) return;
+
+  const aiSide = (playerSide === WHITE) ? BLACK : WHITE;
+  const humanSide = playerSide;
+
+  let allMoves = [];
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      if (board[r][c] && board[r][c].side === aiSide) {
+        allMoves.push(...getLegalMoves(r, c, aiSide));
+      }
+    }
+  }
+
+  if (allMoves.length === 0) {
+    gameOver = true;
+    statusEl.innerText = '🎉 无棋可走，你赢了！';
+    gameOverMsgEl.innerText = '🏆 绝杀！';
+    return;
+  }
+
+  const difficulty = difficultySelect.value;
+  let chosenMove = null;
+
+  if (difficulty === 'easy') {
+    chosenMove = allMoves[Math.floor(Math.random() * allMoves.length)];
+  } 
+  else if (difficulty === 'medium') {
+    let bestScore = -999;
+    let bestMoves = [];
+    for (const move of allMoves) {
+      const target = board[move.toR][move.toC];
+      let score = target ? PIECE_VALUES[target.type] : 0;
+      score += (Math.random() - 0.5) * 0.2; 
+      if (score > bestScore) { bestScore = score; bestMoves = [move]; }
+      else if (Math.abs(score - bestScore) < 0.01) { bestMoves.push(move); }
+    }
+    chosenMove = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+  } 
+  else if (difficulty === 'hard') {
+    let bestScore = -999;
+    let bestMoves = [];
+    for (const move of allMoves) {
+      let score = 0;
+      const target = board[move.toR][move.toC];
+      if (target) score += PIECE_VALUES[target.type] * 1.5;
+      
+      const attackers = getAttackers(move.toR, move.toC, humanSide);
+      if (attackers.length > 0) {
+        score -= PIECE_VALUES[board[move.fromR][move.fromC].type] * 0.8;
+      }
+      score += (Math.random() - 0.5) * 0.3;
+      if (score > bestScore) { bestScore = score; bestMoves = [move]; }
+      else if (Math.abs(score - bestScore) < 0.01) { bestMoves.push(move); }
+    }
+    chosenMove = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+  } 
+  else if (difficulty === 'expert' || difficulty === 'defense') {
+    let bestScore = -9999;
+    let bestMoves = [];
+
+    for (const move of allMoves) {
+      let score = 0;
+      const target = board[move.toR][move.toC];
+      if (target) score += PIECE_VALUES[target.type] * 1.5;
+
+      const movingPiece = board[move.fromR][move.fromC];
+      board[move.toR][move.toC] = movingPiece;
+      board[move.fromR][move.fromC] = null;
+
+      const postAttackers = getAttackers(move.toR, move.toC, humanSide);
+      if (postAttackers.length > 0) {
+        score -= PIECE_VALUES[movingPiece.type] * 1.0;
+      }
+
+      let kingR = -1, kingC = -1;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; r++) { // 修正扫国王循环控制变量Bug
+          if (board[r][c] && board[r][c].type === TYPE.KING && board[r][c].side === aiSide) {
+            kingR = r; kingC = c; break;
+          }
+        }
+        if (kingR !== -1) break;
+      }
+      if (kingR !== -1 && getAttackers(kingR, kingC, humanSide).length > 0) {
+        score -= 200; 
+      }
+
+      if (difficulty === 'defense') {
+        if (getAttackers(move.toR, move.toC, aiSide).length > 0) score += 0.4;
+      }
+
+      board[move.fromR][move.fromC] = movingPiece;
+      board[move.toR][move.toC] = target;
+
+      score += (Math.random() - 0.5) * 0.4;
+
+      if (score > bestScore) { bestScore = score; bestMoves = [move]; }
+      else if (Math.abs(score - bestScore) < 0.01) { bestMoves.push(move); }
+    }
+    chosenMove = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+  }
+
+  if (!chosenMove) chosenMove = allMoves[Math.floor(Math.random() * allMoves.length)];
+
+  const gameEnded = executeMove(chosenMove);
+  if (!gameEnded) {
+    const currentTurnSide = (history.length % 2 === 0) ? WHITE : BLACK;
+    isPlayerTurn = (playerSide === currentTurnSide);
+    updateStatusText();
+  }
+}
+
+// ==================== 💥 修复：独立层级物理掀桌动力学 💥 ====================
+function triggerBoardExplosion() {
+  if (isExploding) return;
+  isExploding = true;
+  gameOver = true; 
+  if (aiTimeoutId) clearTimeout(aiTimeoutId);
+  promoOverlay.style.display = 'none';
+
+  statusEl.innerText = '💥 物理掀桌！';
+  gameOverMsgEl.innerText = '🌋 正在重组粒子...';
+
+  const rect = bgEl.getBoundingClientRect();
+  const boardW = rect.width;
+  const boardH = rect.height;
+
+  const particles = [];
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      if (board[r][c]) {
+        const posX = (boardW / 8) * (c + 0.5);
+        const posY = (boardH / 8) * (r + 0.5);
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 14 + Math.random() * 12; 
+
+        particles.push({
+          info: board[r][c],
+          x: posX, y: posY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 16,
+          dom: null
+        });
+      }
+    }
+  }
+
+  // 🛠️ 已经修复：不再执行 innerHTML='' 擦除网格，而是只清空棋子节点层
+  piecesLayerEl.innerHTML = '';
+  triggersLayerEl.innerHTML = ''; // 隐匿交互点击触发器
+
+  // 重新生成独立样式的绝对漂移粒子 DOM
+  particles.forEach(p => {
+    const el = document.createElement('div');
+    el.className = `piece ${p.info.side}`;
+    if (playerSide === BLACK) el.classList.add('rotate180');
+    el.innerHTML = PIECE_SYMBOLS[p.info.side][p.info.type];
+
+    el.style.position = 'absolute';
+    el.style.fontSize = '2.2rem';
+    el.style.width = `${boardW / 8}px`;
+    el.style.height = `${boardH / 8}px`;
+    el.style.display = 'flex';
+    el.style.justifyContent = 'center';
+    el.style.align = 'center';
+    el.style.zIndex = '100';
+    el.style.transition = 'none'; 
+    
+    piecesLayerEl.appendChild(el);
+    p.dom = el;
+  });
+
+  function updatePhysicsFrame() {
+    let anyMoving = false;
+    const friction = 0.95;      
+    const stopThreshold = 0.2;  
+
+    for (const p of particles) {
+      const currentSpeed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+      if (currentSpeed < stopThreshold) {
+        p.vx = 0; p.vy = 0; continue;
+      }
+
+      anyMoving = true;
+      p.vx *= friction;
+      p.vy *= friction;
+      p.x += p.vx;
+      p.y += p.vy;
+
+      if (p.x - p.radius < 0) { p.x = p.radius; p.vx *= -0.8; }
+      if (p.x + p.radius > boardW) { p.x = boardW - p.radius; p.vx *= -0.8; }
+      if (p.y - p.radius < 0) { p.y = p.radius; p.vy *= -0.8; }
+      if (p.y + p.radius > boardH) { p.y = boardH - p.radius; p.vy *= -0.8; }
+
+      if (p.dom) {
+        p.dom.style.left = `${p.x - (boardW/16)}px`;
+        p.dom.style.top = `${p.y - (boardH/16)}px`;
+      }
+    }
+
+    if (anyMoving) {
+      requestAnimationFrame(updatePhysicsFrame);
+    } else {
+      setTimeout(() => { initGame(); }, 1200);
+    }
+  }
+  requestAnimationFrame(updatePhysicsFrame);
+}
+
+// ==================== 陀螺仪与摇晃传感器监听 ====================
+let lastX = null, lastY = null, lastZ = null;
+let shakeCount = 0;
+let lastShakeTime = 0;
+
+window.addEventListener('devicemotion', (event) => {
+  if (isExploding) return;
+  const acc = event.accelerationIncludingGravity;
+  if (!acc) return;
+
+  if (lastX !== null) {
+    const deltaX = Math.abs(acc.x - lastX);
+    const deltaY = Math.abs(acc.y - lastY);
+    const deltaZ = Math.abs(acc.z - lastZ);
+
+    if (deltaX > 14 || deltaY > 14 || deltaZ > 14) {
+      const now = Date.now();
+      if (now - lastShakeTime < 400) shakeCount++;
+      else shakeCount = 1;
+      lastShakeTime = now;
+
+      if (shakeCount >= 4) triggerBoardExplosion();
+    }
+  }
+  lastX = acc.x; lastY = acc.y; lastZ = acc.z;
+});
+
+window.addEventListener('deviceorientation', (event) => {
+  if (gameOver || isExploding || promoOverlay.style.display === 'flex') return;
+  const beta = event.beta;
+  if (beta !== null) {
+    let changed = false;
+    if (beta < -30 && playerSide === WHITE) { playerSide = BLACK; changed = true; } 
+    else if (beta > 30 && playerSide === BLACK) { playerSide = WHITE; changed = true; }
+
+    if (changed) {
+      selectedSquare = null; legalMovesForSelected = [];
+      renderBoard(); 
+      const currentTurnSide = (history.length % 2 === 0) ? WHITE : BLACK;
+      if (playerSide !== currentTurnSide) {
+        isPlayerTurn = false;
+        statusEl.innerText = '🔄 视角切换中...';
+        checkAndTriggerAi(1000);
+      } else {
+        isPlayerTurn = true; updateStatusText();
+        if (aiTimeoutId) clearTimeout(aiTimeoutId); 
+      }
+    }
+  }
+});
+
+// ==================== 事件响应器绑定 ====================
+restartBtn.addEventListener('click', initGame);
+undoBtn.addEventListener('click', undo);
+difficultySelect.addEventListener('change', () => {
+  localStorage.setItem('intl_chess_difficulty', difficultySelect.value);
+  initGame();
+});
+
+// 游戏开机拉起
+initGame();
+</script>
+</body>
+</html>
